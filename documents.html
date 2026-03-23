@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ContentGuard — Documents</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg:      #080c10;
+    --bg2:     #0e1318;
+    --border:  #1e2830;
+    --accent:  #00e5ff;
+    --accent2: #7b61ff;
+    --danger:  #ff4c6a;
+    --success: #00e5a0;
+    --warning: #ffb800;
+    --text:    #e8edf2;
+    --muted:   #5a6a7a;
+    --card:    #0d1520;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'DM Mono', monospace; min-height: 100vh;
+  }
+
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 48px 48px; pointer-events: none; z-index: 0;
+  }
+
+  .blob { position: fixed; border-radius: 50%; filter: blur(120px); opacity: 0.13; pointer-events: none; z-index: 0; }
+  .blob-1 { width: 500px; height: 500px; background: var(--accent2); top: -150px; right: -100px; }
+  .blob-2 { width: 350px; height: 350px; background: var(--accent);  bottom: 50px; left: -80px; }
+
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 48px; height: 64px;
+    background: rgba(8,12,16,0.85); backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-logo {
+    font-family: 'Syne', sans-serif; font-weight: 800; font-size: 20px;
+    letter-spacing: -0.5px; color: var(--text); text-decoration: none;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo-badge { width: 28px; height: 28px; background: var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+
+  .nav-right { display: flex; align-items: center; gap: 16px; }
+
+  .breadcrumb { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .breadcrumb a { color: var(--muted); text-decoration: none; }
+  .breadcrumb a:hover { color: var(--text); }
+  .breadcrumb .sep { opacity: 0.3; }
+  .breadcrumb .current { color: var(--accent); }
+
+  .btn-upload {
+    background: var(--accent); color: #000; font-family: 'DM Mono', monospace;
+    font-size: 12px; font-weight: 500; padding: 7px 16px; border-radius: 6px;
+    text-decoration: none; display: flex; align-items: center; gap: 7px; transition: opacity 0.2s;
+  }
+  .btn-upload:hover { opacity: 0.85; }
+
+  .page-wrap { position: relative; z-index: 1; max-width: 1000px; margin: 0 auto; padding: 100px 32px 80px; }
+
+  .page-header {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 36px; flex-wrap: wrap; gap: 20px;
+    animation: fadeUp 0.5s ease both;
+  }
+
+  .page-tag {
+    font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--accent); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+  }
+  .page-tag::before { content: ''; display: block; width: 24px; height: 1px; background: var(--accent); }
+
+  h1 { font-family: 'Syne', sans-serif; font-size: 36px; font-weight: 800; letter-spacing: -1.5px; color: var(--text); }
+
+  /* STATS */
+  .stats-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    margin-bottom: 32px; animation: fadeUp 0.5s 0.1s ease both;
+  }
+  .stat-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px 24px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .stat-card .num { font-family: 'Syne', sans-serif; font-size: 28px; font-weight: 800; letter-spacing: -1px; color: var(--text); }
+  .stat-card .num.high   { color: var(--danger); }
+  .stat-card .num.medium { color: var(--warning); }
+  .stat-card .num.clean  { color: var(--success); }
+  .stat-card .lbl { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+
+  /* FILTER BAR */
+  .filter-bar {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 20px;
+    flex-wrap: wrap; animation: fadeUp 0.5s 0.15s ease both;
+  }
+  .filter-btn {
+    background: transparent; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--muted); font-family: 'DM Mono', monospace; font-size: 12px;
+    padding: 7px 16px; cursor: pointer; transition: all 0.2s;
+  }
+  .filter-btn:hover { border-color: var(--muted); color: var(--text); }
+  .filter-btn.active { background: rgba(0,229,255,0.08); border-color: var(--accent); color: var(--accent); }
+
+  .search-box {
+    margin-left: auto; background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 14px; color: var(--text);
+    font-family: 'DM Mono', monospace; font-size: 12px; outline: none; width: 220px;
+    transition: border-color 0.2s;
+  }
+  .search-box:focus { border-color: var(--accent); }
+  .search-box::placeholder { color: var(--muted); }
+
+  /* TABLE */
+  .doc-table {
+    width: 100%; border-collapse: separate; border-spacing: 0 8px;
+    animation: fadeUp 0.5s 0.2s ease both;
+  }
+  .doc-table thead th {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--muted); text-align: left; padding: 0 20px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .doc-row {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; transition: border-color 0.2s, transform 0.2s;
+  }
+  .doc-row:hover { border-color: rgba(0,229,255,0.2); transform: translateX(4px); }
+  .doc-row td { padding: 16px 20px; font-size: 13px; vertical-align: middle; }
+  .doc-row td:first-child { border-radius: 10px 0 0 10px; }
+  .doc-row td:last-child  { border-radius: 0 10px 10px 0; }
+
+  .doc-name-cell { display: flex; align-items: center; gap: 14px; }
+  .doc-icon {
+    width: 36px; height: 36px; border-radius: 8px;
+    background: rgba(0,229,255,0.08); border: 1px solid rgba(0,229,255,0.12);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; flex-shrink: 0;
+  }
+  .doc-name { font-size: 13px; color: var(--text); font-weight: 500; }
+  .doc-id   { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  .score-bar-wrap { display: flex; align-items: center; gap: 10px; }
+  .score-bar-bg { width: 80px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .score-bar-fill { height: 100%; border-radius: 2px; }
+  .score-val { font-size: 12px; color: var(--text); min-width: 40px; }
+
+  .label {
+    display: inline-block; font-size: 10px; letter-spacing: 0.1em;
+    text-transform: uppercase; font-weight: 600; padding: 4px 10px; border-radius: 4px;
+  }
+  .label-HIGH   { background: rgba(255,76,106,0.12);  color: var(--danger);  border: 1px solid rgba(255,76,106,0.2);  }
+  .label-MEDIUM { background: rgba(255,184,0,0.12);   color: var(--warning); border: 1px solid rgba(255,184,0,0.2);   }
+  .label-LOW    { background: rgba(0,229,160,0.10);   color: var(--success); border: 1px solid rgba(0,229,160,0.18);  }
+  .label-NONE   { background: rgba(90,106,122,0.12);  color: var(--muted);   border: 1px solid rgba(90,106,122,0.2);  }
+
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .status-processed .status-dot { background: var(--success); }
+  .status-pending   .status-dot { background: var(--warning); animation: blink 1.5s ease-in-out infinite; }
+  .status-processed { color: var(--success); }
+  .status-pending   { color: var(--warning); }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+  /* EMPTY STATE */
+  .empty-state {
+    text-align: center; padding: 100px 24px; display: none;
+  }
+  .empty-state.show { display: block; }
+  .empty-icon { font-size: 56px; margin-bottom: 24px; opacity: 0.25; }
+  .empty-state h3 { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+  .empty-state p  { font-size: 13px; color: var(--muted); margin-bottom: 32px; line-height: 1.7; }
+
+  .btn-primary {
+    background: var(--accent); color: #000; font-family: 'DM Mono', monospace;
+    font-weight: 500; font-size: 13px; padding: 12px 28px; border: none;
+    border-radius: 8px; cursor: pointer; text-decoration: none;
+    display: inline-flex; align-items: center; gap: 8px;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(0,229,255,0.22); }
+
+  /* NO RESULTS */
+  .no-results { text-align: center; padding: 48px; color: var(--muted); font-size: 13px; display: none; }
+  .no-results.show { display: block; }
+
+  /* CLEAR BTN */
+  .clear-btn {
+    background: transparent; border: 1px solid rgba(255,76,106,0.25); border-radius: 6px;
+    color: var(--danger); font-family: 'DM Mono', monospace; font-size: 11px;
+    padding: 6px 14px; cursor: pointer; transition: all 0.2s; opacity: 0.7;
+  }
+  .clear-btn:hover { opacity: 1; background: rgba(255,76,106,0.08); }
+
+  @keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+
+  @media(max-width: 700px) {
+    nav { padding: 0 20px; }
+    .page-wrap { padding: 90px 16px 60px; }
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .search-box { width: 100%; margin-left: 0; }
+    h1 { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+
+<nav>
+  <a href="index.html" class="nav-logo">
+    <div class="logo-badge">
+      <svg viewBox="0 0 16 16" fill="none" width="16" height="16">
+        <path d="M3 4h10M3 8h7M3 12h4" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="13" cy="10" r="3" stroke="#000" stroke-width="1.5"/>
+        <path d="M15.5 12.5l-1.5-1.5" stroke="#000" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </div>
+    ContentGuard
+  </a>
+  <div class="nav-right">
+    <div class="breadcrumb">
+      <a href="index.html">Home</a>
+      <span class="sep">/</span>
+      <span class="current">Documents</span>
+    </div>
+    <a href="upload.html" class="btn-upload">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+        <path d="M8 1v9M5 4l3-3 3 3M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Upload New
+    </a>
+  </div>
+</nav>
+
+<div class="page-wrap">
+
+  <div class="page-header">
+    <div>
+      <div class="page-tag">Submitted Documents</div>
+      <h1>All Documents</h1>
+    </div>
+    <button class="clear-btn" id="clear-btn" onclick="clearAll()" style="display:none">Clear all records</button>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <span class="num" id="stat-total">0</span>
+      <span class="lbl">Total Uploaded</span>
+    </div>
+    <div class="stat-card">
+      <span class="num high" id="stat-high">0</span>
+      <span class="lbl">High Risk</span>
+    </div>
+    <div class="stat-card">
+      <span class="num medium" id="stat-medium">0</span>
+      <span class="lbl">Medium Risk</span>
+    </div>
+    <div class="stat-card">
+      <span class="num clean" id="stat-clean">0</span>
+      <span class="lbl">Clean</span>
+    </div>
+  </div>
+
+  <!-- FILTER BAR -->
+  <div class="filter-bar" id="filter-bar" style="display:none">
+    <button class="filter-btn active" onclick="filterDocs('ALL', this)">All</button>
+    <button class="filter-btn" onclick="filterDocs('HIGH', this)">High Risk</button>
+    <button class="filter-btn" onclick="filterDocs('MEDIUM', this)">Medium</button>
+    <button class="filter-btn" onclick="filterDocs('LOW', this)">Low</button>
+    <button class="filter-btn" onclick="filterDocs('NONE', this)">Clean</button>
+    <input class="search-box" type="text" id="search-input" placeholder="Search by name or ID..." oninput="searchDocs(this.value)"/>
+  </div>
+
+  <!-- EMPTY STATE -->
+  <div class="empty-state show" id="empty-state">
+    <div class="empty-icon">📂</div>
+    <h3>No documents yet</h3>
+    <p>Upload your first document to get started.<br/>Results will appear here automatically.</p>
+    <a href="upload.html" class="btn-primary">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+        <path d="M8 1v9M5 4l3-3 3 3M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Upload Document
+    </a>
+  </div>
+
+  <!-- NO RESULTS -->
+  <div class="no-results" id="no-results">No documents match your search.</div>
+
+  <!-- TABLE -->
+  <table class="doc-table" id="doc-table" style="display:none">
+    <thead>
+      <tr>
+        <th>Document</th>
+        <th>Submitted</th>
+        <th>Score</th>
+        <th>Risk</th>
+        <th>Status</th>
+        <th style="text-align:center">Rank</th>
+      </tr>
+    </thead>
+    <tbody id="doc-tbody"></tbody>
+  </table>
+
+</div>
+
+<script>
+  let allDocs      = [];
+  let activeFilter = 'ALL';
+  let searchQuery  = '';
+
+  function loadDocs() {
+    allDocs = JSON.parse(localStorage.getItem('cg_documents') || '[]');
+    // Assign ranks by score descending (only PROCESSED docs)
+    const processed = [...allDocs]
+      .filter(d => d.status === 'PROCESSED')
+      .sort((a, b) => b.score - a.score);
+    processed.forEach((d, i) => { d.rank = i + 1; });
+    // Merge ranks back
+    allDocs.forEach(d => {
+      const p = processed.find(x => x.id === d.id);
+      if (p) d.rank = p.rank; else d.rank = '—';
+    });
+  }
+
+  function getScoreColor(score) {
+    if (score >= 70) return 'var(--danger)';
+    if (score >= 40) return 'var(--warning)';
+    if (score >= 10) return 'var(--success)';
+    return 'var(--muted)';
+  }
+
+  function renderStats() {
+    document.getElementById('stat-total').textContent  = allDocs.length;
+    document.getElementById('stat-high').textContent   = allDocs.filter(d => d.label === 'HIGH').length;
+    document.getElementById('stat-medium').textContent = allDocs.filter(d => d.label === 'MEDIUM').length;
+    document.getElementById('stat-clean').textContent  = allDocs.filter(d => d.label === 'NONE' || d.label === 'LOW').length;
+  }
+
+  function renderTable() {
+    const emptyState = document.getElementById('empty-state');
+    const noResults  = document.getElementById('no-results');
+    const table      = document.getElementById('doc-table');
+    const filterBar  = document.getElementById('filter-bar');
+    const clearBtn   = document.getElementById('clear-btn');
+    const tbody      = document.getElementById('doc-tbody');
+
+    // Show/hide empty state
+    if (allDocs.length === 0) {
+      emptyState.classList.add('show');
+      table.style.display = 'none';
+      filterBar.style.display = 'none';
+      clearBtn.style.display = 'none';
+      noResults.classList.remove('show');
+      return;
+    }
+
+    emptyState.classList.remove('show');
+    filterBar.style.display = 'flex';
+    clearBtn.style.display = '';
+
+    // Apply filter + search
+    let filtered = [...allDocs];
+    if (activeFilter !== 'ALL') {
+      filtered = filtered.filter(d => d.label === activeFilter);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(d =>
+        d.name.toLowerCase().includes(q) ||
+        d.id.toLowerCase().includes(q) ||
+        d.user.toLowerCase().includes(q)
+      );
+    }
+
+    if (filtered.length === 0) {
+      noResults.classList.add('show');
+      table.style.display = 'none';
+      return;
+    }
+
+    noResults.classList.remove('show');
+    table.style.display = '';
+    tbody.innerHTML = '';
+
+    filtered.forEach(doc => {
+      const scoreColor = getScoreColor(doc.score);
+      const scoreBar   = Math.min(doc.score, 100);
+      const scoreText  = doc.score.toFixed(1) + '%';
+
+      const statusClass = doc.status === 'PROCESSED' ? 'status-processed' : 'status-pending';
+      const statusLabel = doc.status === 'PROCESSED' ? 'Processed' : 'Pending';
+
+      const tr = document.createElement('tr');
+      tr.className = 'doc-row';
+      tr.innerHTML = `
+        <td>
+          <div class="doc-name-cell">
+            <div class="doc-icon">${doc.icon}</div>
+            <div>
+              <div class="doc-name">${doc.name}</div>
+              <div class="doc-id">${doc.id} · ${doc.user}</div>
+            </div>
+          </div>
+        </td>
+        <td style="color:var(--muted);font-size:12px">${doc.submitted}</td>
+        <td>
+          <div class="score-bar-wrap">
+            <div class="score-bar-bg">
+              <div class="score-bar-fill" style="width:${scoreBar}%;background:${scoreColor}"></div>
+            </div>
+            <span class="score-val" style="color:${scoreColor}">${scoreText}</span>
+          </div>
+        </td>
+        <td><span class="label label-${doc.label}">${doc.label}</span></td>
+        <td><span class="status ${statusClass}"><span class="status-dot"></span>${statusLabel}</span></td>
+        <td style="color:var(--muted);font-size:13px;text-align:center">${doc.rank}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function filterDocs(label, btn) {
+    activeFilter = label;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderTable();
+  }
+
+  function searchDocs(val) {
+    searchQuery = val;
+    renderTable();
+  }
+
+  function clearAll() {
+    if (confirm('Clear all document records? This cannot be undone.')) {
+      localStorage.removeItem('cg_documents');
+      allDocs = [];
+      activeFilter = 'ALL';
+      searchQuery  = '';
+      renderStats();
+      renderTable();
+    }
+  }
+
+  // Initial load
+  loadDocs();
+  renderStats();
+  renderTable();
+</script>
+</body>
+</html>

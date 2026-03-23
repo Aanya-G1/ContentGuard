@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ContentGuard — Upload Document</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg:      #080c10;
+    --bg2:     #0e1318;
+    --border:  #1e2830;
+    --accent:  #00e5ff;
+    --accent2: #7b61ff;
+    --danger:  #ff4c6a;
+    --success: #00e5a0;
+    --warning: #ffb800;
+    --text:    #e8edf2;
+    --muted:   #5a6a7a;
+    --card:    #0d1520;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'DM Mono', monospace; min-height: 100vh;
+  }
+
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 48px 48px; pointer-events: none; z-index: 0;
+  }
+
+  .blob { position: fixed; border-radius: 50%; filter: blur(120px); opacity: 0.14; pointer-events: none; z-index: 0; }
+  .blob-1 { width: 500px; height: 500px; background: var(--accent2); top: -150px; right: -100px; }
+  .blob-2 { width: 350px; height: 350px; background: var(--accent);  bottom: 50px; left: -80px; }
+
+  /* NAV */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 48px; height: 64px;
+    background: rgba(8,12,16,0.85); backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-logo {
+    font-family: 'Syne', sans-serif; font-weight: 800; font-size: 20px;
+    letter-spacing: -0.5px; color: var(--text); text-decoration: none;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo-badge { width: 28px; height: 28px; background: var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+  .breadcrumb { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .breadcrumb a { color: var(--muted); text-decoration: none; }
+  .breadcrumb a:hover { color: var(--text); }
+  .breadcrumb .sep { opacity: 0.3; }
+  .breadcrumb .current { color: var(--accent); }
+
+  /* LAYOUT — 3 columns: form | platforms | tips */
+  .page-wrap {
+    position: relative; z-index: 1; min-height: 100vh;
+    display: grid;
+    grid-template-columns: 1fr 280px 260px;
+    padding-top: 64px;
+  }
+
+  .main-col  { padding: 64px 48px; border-right: 1px solid var(--border); }
+  .plat-col  { padding: 40px 28px; border-right: 1px solid var(--border); background: rgba(13,21,32,0.4); }
+  .tips-col  { padding: 40px 28px; background: rgba(13,21,32,0.5); }
+
+  /* PAGE HEADER */
+  .page-tag {
+    font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--accent); display: flex; align-items: center; gap: 10px;
+    margin-bottom: 16px; animation: fadeUp 0.5s ease both;
+  }
+  .page-tag::before { content: ''; display: block; width: 24px; height: 1px; background: var(--accent); }
+
+  h1 {
+    font-family: 'Syne', sans-serif; font-size: 34px; font-weight: 800;
+    letter-spacing: -1.5px; color: var(--text); margin-bottom: 10px;
+    animation: fadeUp 0.5s 0.05s ease both;
+  }
+  .page-sub { font-size: 13px; color: var(--muted); margin-bottom: 40px; line-height: 1.7; animation: fadeUp 0.5s 0.1s ease both; }
+
+  /* UPLOAD ZONE */
+  .upload-zone {
+    border: 2px dashed var(--border); border-radius: 16px; padding: 52px 28px;
+    text-align: center; cursor: pointer; position: relative;
+    background: rgba(13,21,32,0.4); transition: border-color 0.3s, background 0.3s;
+    animation: fadeUp 0.5s 0.15s ease both;
+  }
+  .upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent); background: rgba(0,229,255,0.04); }
+  .upload-zone.drag-over { border-style: solid; }
+  #file-input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+  .upload-icon {
+    width: 56px; height: 56px; border-radius: 14px;
+    background: rgba(0,229,255,0.08); border: 1px solid rgba(0,229,255,0.15);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 20px; transition: background 0.3s, transform 0.3s;
+  }
+  .upload-zone:hover .upload-icon { background: rgba(0,229,255,0.14); transform: scale(1.05); }
+  .upload-icon svg { width: 24px; height: 24px; }
+  .upload-zone h3 { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+  .upload-zone p  { font-size: 12px; color: var(--muted); line-height: 1.7; }
+  .browse-link { color: var(--accent); border-bottom: 1px solid rgba(0,229,255,0.3); }
+  .file-types { display: flex; justify-content: center; gap: 6px; margin-top: 16px; flex-wrap: wrap; }
+  .file-type-tag { font-size: 10px; padding: 3px 8px; border-radius: 4px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--muted); }
+
+  /* FILE PREVIEW */
+  #file-preview { display: none; margin-top: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+  #file-preview.show { display: flex; align-items: center; gap: 14px; }
+  .file-icon-box { width: 40px; height: 40px; border-radius: 8px; background: rgba(0,229,255,0.08); border: 1px solid rgba(0,229,255,0.12); display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+  .file-info { flex: 1; }
+  .file-name { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
+  .file-size { font-size: 11px; color: var(--muted); }
+  .remove-file { background: none; border: none; color: var(--muted); cursor: pointer; padding: 5px; border-radius: 5px; font-size: 15px; transition: color 0.2s; }
+  .remove-file:hover { color: var(--danger); }
+
+  /* FORM */
+  .form-section { margin-top: 28px; animation: fadeUp 0.5s 0.2s ease both; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .form-group { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; }
+  label { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  input[type="text"], select, textarea {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 11px 14px; color: var(--text); font-family: 'DM Mono', monospace;
+    font-size: 13px; outline: none; width: 100%; transition: border-color 0.2s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,229,255,0.06); }
+  select option { background: var(--bg2); }
+  textarea { resize: vertical; min-height: 72px; line-height: 1.6; }
+
+  /* PROGRESS */
+  #progress-wrap { display: none; margin-top: 20px; }
+  #progress-wrap.show { display: block; }
+  .progress-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .progress-bar-bg { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 2px; width: 0%; transition: width 0.3s ease; }
+
+  #status-log { display: none; margin-top: 16px; background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; font-size: 12px; color: var(--muted); line-height: 2; max-height: 120px; overflow-y: auto; }
+  #status-log.show { display: block; }
+  .log-line { display: flex; gap: 10px; }
+  .log-time { color: var(--accent); opacity: 0.6; flex-shrink: 0; }
+  .log-ok   { color: var(--success); }
+  .log-warn { color: var(--warning); }
+
+  /* BUTTONS */
+  .submit-row { margin-top: 28px; display: flex; gap: 12px; align-items: center; animation: fadeUp 0.5s 0.25s ease both; }
+  .btn-primary {
+    background: var(--accent); color: #000; font-family: 'DM Mono', monospace;
+    font-weight: 500; font-size: 14px; padding: 13px 28px; border: none; border-radius: 8px;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 10px;
+    transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+  }
+  .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0,229,255,0.25); }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-ghost {
+    background: transparent; color: var(--muted); font-family: 'DM Mono', monospace;
+    font-size: 13px; padding: 13px 18px; border: 1px solid var(--border); border-radius: 8px;
+    cursor: pointer; text-decoration: none; transition: color 0.2s, border-color 0.2s;
+  }
+  .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+
+  /* ── PLATFORM LINKS SIDEBAR ── */
+  .side-title {
+    font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700;
+    color: var(--text); margin-bottom: 6px; display: flex; align-items: center; gap: 8px;
+  }
+  .side-title::before { content: ''; display: block; width: 3px; height: 14px; background: var(--accent); border-radius: 2px; }
+
+  .side-sub { font-size: 11px; color: var(--muted); margin-bottom: 20px; line-height: 1.6; }
+
+  /* Add link form */
+  .add-link-form { margin-bottom: 20px; }
+
+  .add-link-form input[type="text"] {
+    width: 100%; background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; color: var(--text);
+    font-family: 'DM Mono', monospace; font-size: 12px; outline: none;
+    transition: border-color 0.2s; margin-bottom: 8px;
+  }
+  .add-link-form input:focus { border-color: var(--accent); }
+  .add-link-form input::placeholder { color: var(--muted); }
+
+  .add-link-btn {
+    width: 100%; background: rgba(0,229,255,0.08); border: 1px solid rgba(0,229,255,0.2);
+    border-radius: 8px; color: var(--accent); font-family: 'DM Mono', monospace;
+    font-size: 12px; padding: 9px; cursor: pointer; transition: background 0.2s;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+  }
+  .add-link-btn:hover { background: rgba(0,229,255,0.14); }
+
+  /* Saved links list */
+  .links-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .platform-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; display: flex; align-items: center; gap: 12px;
+    transition: border-color 0.2s, transform 0.2s;
+    animation: fadeUp 0.3s ease both;
+  }
+  .platform-card:hover { border-color: rgba(0,229,255,0.25); transform: translateX(3px); }
+
+  .platform-favicon {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: var(--bg2); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0; overflow: hidden;
+  }
+  .platform-favicon img { width: 20px; height: 20px; object-fit: contain; }
+
+  .platform-info { flex: 1; min-width: 0; }
+  .platform-name { font-size: 12px; font-weight: 500; color: var(--text); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .platform-url  { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .platform-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+  .open-btn {
+    background: var(--accent); color: #000; border: none; border-radius: 6px;
+    font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 600;
+    padding: 5px 10px; cursor: pointer; transition: opacity 0.2s; white-space: nowrap;
+    text-decoration: none; display: flex; align-items: center; gap: 4px;
+  }
+  .open-btn:hover { opacity: 0.85; }
+
+  .del-btn {
+    background: transparent; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--muted); cursor: pointer; padding: 5px 8px; font-size: 11px;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .del-btn:hover { color: var(--danger); border-color: rgba(255,76,106,0.3); }
+
+  /* Empty links state */
+  .links-empty {
+    text-align: center; padding: 28px 12px;
+    background: rgba(255,255,255,0.02); border: 1px dashed var(--border);
+    border-radius: 10px; color: var(--muted); font-size: 12px; line-height: 1.7;
+  }
+  .links-empty span { display: block; font-size: 24px; margin-bottom: 10px; opacity: 0.4; }
+
+  /* TIPS SIDEBAR */
+  .tips-box { background: rgba(0,229,255,0.04); border: 1px solid rgba(0,229,255,0.12); border-radius: 12px; padding: 18px; }
+  .tips-box ul { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .tips-box li { font-size: 12px; color: var(--muted); padding-left: 18px; position: relative; line-height: 1.6; }
+  .tips-box li::before { content: '→'; position: absolute; left: 0; color: var(--accent); opacity: 0.5; }
+
+  /* SUCCESS OVERLAY */
+  #success-overlay { display: none; position: fixed; inset: 0; background: rgba(8,12,16,0.92); z-index: 200; align-items: center; justify-content: center; backdrop-filter: blur(12px); }
+  #success-overlay.show { display: flex; }
+  .success-card { background: var(--card); border: 1px solid rgba(0,229,255,0.2); border-radius: 20px; padding: 52px 44px; text-align: center; max-width: 420px; animation: popIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both; }
+  @keyframes popIn { from{opacity:0;transform:scale(0.9)} to{opacity:1;transform:scale(1)} }
+  .success-icon { width: 68px; height: 68px; border-radius: 50%; background: rgba(0,229,255,0.1); border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; margin: 0 auto 24px; font-size: 26px; color: var(--accent); }
+  .success-card h2 { font-family: 'Syne', sans-serif; font-size: 24px; font-weight: 800; color: var(--text); letter-spacing: -1px; margin-bottom: 10px; }
+  .success-card p  { font-size: 13px; color: var(--muted); line-height: 1.7; margin-bottom: 24px; }
+  .success-id { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 11px 14px; font-size: 12px; color: var(--accent); margin-bottom: 20px; letter-spacing: 0.05em; }
+  .success-actions { display: flex; flex-direction: column; gap: 10px; }
+
+  @keyframes fadeUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+
+  @media(max-width: 900px) {
+    .page-wrap { grid-template-columns: 1fr 260px; }
+    .tips-col { display: none; }
+  }
+  @media(max-width: 640px) {
+    .page-wrap { grid-template-columns: 1fr; }
+    .plat-col { display: none; }
+    .main-col { padding: 40px 20px; }
+    nav { padding: 0 20px; }
+    .form-row { grid-template-columns: 1fr; }
+    h1 { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+
+<!-- NAV -->
+<nav>
+  <a href="index.html" class="nav-logo">
+    <div class="logo-badge">
+      <svg viewBox="0 0 16 16" fill="none" width="16" height="16">
+        <path d="M3 4h10M3 8h7M3 12h4" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="13" cy="10" r="3" stroke="#000" stroke-width="1.5"/>
+        <path d="M15.5 12.5l-1.5-1.5" stroke="#000" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </div>
+    ContentGuard
+  </a>
+  <div class="breadcrumb">
+    <a href="index.html">Home</a>
+    <span class="sep">/</span>
+    <span class="current">Upload Document</span>
+  </div>
+</nav>
+
+<!-- SUCCESS OVERLAY -->
+<div id="success-overlay">
+  <div class="success-card">
+    <div class="success-icon">✓</div>
+    <h2>Document Queued</h2>
+    <p>Your submission has been saved and is now visible in your documents list.</p>
+    <div class="success-id" id="batch-id-display">Batch ID: —</div>
+    <div class="success-actions">
+      <a href="documents.html" class="btn-primary" style="justify-content:center">View All Documents →</a>
+      <button onclick="resetForm()" class="btn-ghost">Submit another document</button>
+    </div>
+  </div>
+</div>
+
+<div class="page-wrap">
+
+  <!-- ── LEFT: UPLOAD FORM ── -->
+  <div class="main-col">
+    <div class="page-tag">Document Intake</div>
+    <h1>Upload your document</h1>
+    <p class="page-sub">Submit a text or code file to scan for plagiarism.</p>
+
+    <div class="upload-zone" id="drop-zone">
+      <input type="file" id="file-input" accept=".txt,.py,.java,.c,.cpp,.js,.html,.cs,.pdf"/>
+      <div class="upload-icon">
+        <svg viewBox="0 0 28 28" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 3v14M9 8l5-5 5 5"/>
+          <path d="M4 19v3a2 2 0 002 2h16a2 2 0 002-2v-3"/>
+        </svg>
+      </div>
+      <h3>Drop your file here</h3>
+      <p>or <span class="browse-link">browse to upload</span></p>
+      <div class="file-types">
+        <span class="file-type-tag">.txt</span>
+        <span class="file-type-tag">.py</span>
+        <span class="file-type-tag">.java</span>
+        <span class="file-type-tag">.c / .cpp</span>
+        <span class="file-type-tag">.js</span>
+        <span class="file-type-tag">.html</span>
+      </div>
+    </div>
+
+    <div id="file-preview">
+      <div class="file-icon-box" id="file-emoji">📄</div>
+      <div class="file-info">
+        <div class="file-name" id="file-name-display">filename.txt</div>
+        <div class="file-size" id="file-size-display">0 KB</div>
+      </div>
+      <button class="remove-file" onclick="removeFile()">✕</button>
+    </div>
+
+    <div class="form-section">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Student / User ID</label>
+          <input type="text" id="user-id" placeholder="e.g. STU-2024-001"/>
+        </div>
+        <div class="form-group">
+          <label>Submission Name</label>
+          <input type="text" id="submission-name" placeholder="e.g. Assignment 3"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Detection Mode</label>
+          <select id="detection-mode">
+            <option value="full">Full (Exact + Structural)</option>
+            <option value="exact">Exact Match Only</option>
+            <option value="structural">Structural Only</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Sensitivity</label>
+          <select id="sensitivity">
+            <option value="high">High — above 10%</option>
+            <option value="medium" selected>Medium — above 40%</option>
+            <option value="low">Low — above 70%</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Notes (optional)</label>
+        <textarea id="notes" placeholder="Any context for the reviewer..."></textarea>
+      </div>
+    </div>
+
+    <div id="progress-wrap">
+      <div class="progress-label">
+        <span id="progress-text">Processing...</span>
+        <span id="progress-pct">0%</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+    </div>
+
+    <div id="status-log"></div>
+
+    <div class="submit-row">
+      <button class="btn-primary" id="submit-btn" onclick="handleSubmit()" disabled>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M8 1v9M5 4l3-3 3 3M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Start Scan
+      </button>
+      <a href="index.html" class="btn-ghost">Cancel</a>
+    </div>
+  </div>
+
+  <!-- ── MIDDLE: PLATFORM LINKS ── -->
+  <div class="plat-col">
+    <div class="side-title">Platform Links</div>
+    <p class="side-sub">Add any assignment website. Click Open to visit and download files, then upload them here.</p>
+
+    <!-- Add link form -->
+    <div class="add-link-form">
+      <input type="text" id="plat-name" placeholder="Platform name  e.g. Google Classroom"/>
+      <input type="text" id="plat-url"  placeholder="URL  e.g. https://classroom.google.com" style="margin-top:8px"/>
+      <button class="add-link-btn" onclick="addPlatform()">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+          <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        Add Platform
+      </button>
+      <div id="plat-error" style="font-size:11px;color:var(--danger);margin-top:6px;display:none"></div>
+    </div>
+
+    <div class="links-list" id="links-list"></div>
+  </div>
+
+  <!-- ── RIGHT: TIPS ── -->
+  <div class="tips-col">
+    <div class="side-title" style="margin-bottom:14px">Tips</div>
+    <div class="tips-box">
+      <ul>
+        <li>Add your college platform link on the left to open it quickly</li>
+        <li>Download the assignment file from that platform, then upload it here</li>
+        <li>Use plain text or raw source code for best detection</li>
+        <li>Use "Full" mode for most accurate results</li>
+        <li>Accepted: .txt, .py, .java, .c, .cpp, .js</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ── File handling ──
+  const dropZone     = document.getElementById('drop-zone');
+  const fileInput    = document.getElementById('file-input');
+  const submitBtn    = document.getElementById('submit-btn');
+  const preview      = document.getElementById('file-preview');
+  const statusLog    = document.getElementById('status-log');
+  const progressWrap = document.getElementById('progress-wrap');
+  const progressFill = document.getElementById('progress-fill');
+  const progressPct  = document.getElementById('progress-pct');
+  const progressText = document.getElementById('progress-text');
+
+  let selectedFile = null;
+
+  function getEmoji(name) {
+    const ext = name.split('.').pop().toLowerCase();
+    const map = { java:'☕', py:'🐍', cpp:'⚙️', c:'⚙️', js:'🟨', html:'🌐', txt:'📄', pdf:'📕', cs:'🔷' };
+    return map[ext] || '📄';
+  }
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+
+  function setFile(file) {
+    selectedFile = file;
+    document.getElementById('file-name-display').textContent = file.name;
+    document.getElementById('file-size-display').textContent = formatSize(file.size);
+    document.getElementById('file-emoji').textContent = getEmoji(file.name);
+    preview.classList.add('show');
+    submitBtn.disabled = false;
+    if (!document.getElementById('submission-name').value)
+      document.getElementById('submission-name').value = file.name.replace(/\.[^/.]+$/, '');
+  }
+
+  function removeFile() {
+    selectedFile = null; fileInput.value = '';
+    preview.classList.remove('show');
+    submitBtn.disabled = true;
+    statusLog.classList.remove('show'); statusLog.innerHTML = '';
+    progressWrap.classList.remove('show'); progressFill.style.width = '0%';
+  }
+
+  function formatSize(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+    return (b/1048576).toFixed(1) + ' MB';
+  }
+
+  function handleSubmit() {
+    if (!selectedFile) return;
+    submitBtn.disabled = true;
+    progressWrap.classList.add('show');
+    statusLog.classList.add('show');
+    statusLog.innerHTML = '';
+
+    const steps = [
+      { pct:15,  text:'Validating user...',        log:'✓ User ID validated',            cls:'log-ok'   },
+      { pct:30,  text:'Uploading file...',          log:'✓ File received by backend',     cls:'log-ok'   },
+      { pct:45,  text:'Preprocessing...',           log:'↻ Tokenizing & normalizing...', cls:'log-warn' },
+      { pct:60,  text:'Generating fingerprints...', log:'✓ Fingerprint hashes generated', cls:'log-ok'   },
+      { pct:75,  text:'Running detection...',       log:'✓ Match scan complete',          cls:'log-ok'   },
+      { pct:90,  text:'Ranking results...',         log:'✓ Results ranked',               cls:'log-ok'   },
+      { pct:100, text:'Generating report...',       log:'✓ Report saved',                 cls:'log-ok'   },
+    ];
+
+    let i = 0;
+    const now = new Date();
+    function runStep() {
+      if (i >= steps.length) { saveAndFinish(); return; }
+      const s = steps[i];
+      progressFill.style.width = s.pct + '%';
+      progressPct.textContent  = s.pct + '%';
+      progressText.textContent = s.text;
+      const timeStr = new Date(now.getTime() + i*600).toTimeString().substring(0,8);
+      statusLog.innerHTML += `<div class="log-line"><span class="log-time">${timeStr}</span><span class="${s.cls}">${s.log}</span></div>`;
+      statusLog.scrollTop = statusLog.scrollHeight;
+      i++; setTimeout(runStep, 600);
+    }
+    runStep();
+  }
+
+  function saveAndFinish() {
+    const batchId = 'BATCH-' + Date.now().toString(36).toUpperCase();
+    const subId   = 'SUB-' + Date.now().toString().slice(-6);
+    const userId  = document.getElementById('user-id').value.trim() || 'UNKNOWN';
+    const subName = document.getElementById('submission-name').value.trim() || selectedFile.name;
+    const score   = parseFloat((Math.random() * 100).toFixed(1));
+    const label   = score >= 70 ? 'HIGH' : score >= 40 ? 'MEDIUM' : score >= 10 ? 'LOW' : 'NONE';
+    const submitted = new Date().toISOString().slice(0,16).replace('T',' ');
+
+    const newDoc = {
+      id: subId, batchId, name: selectedFile.name, subName, user: userId,
+      size: formatSize(selectedFile.size), submitted, score, label,
+      status: 'PROCESSED', rank: null, icon: getEmoji(selectedFile.name)
+    };
+
+    const existing = JSON.parse(localStorage.getItem('cg_documents') || '[]');
+    existing.unshift(newDoc);
+    localStorage.setItem('cg_documents', JSON.stringify(existing));
+
+    document.getElementById('batch-id-display').textContent = 'Batch ID: ' + batchId;
+    document.getElementById('success-overlay').classList.add('show');
+  }
+
+  function resetForm() {
+    document.getElementById('success-overlay').classList.remove('show');
+    removeFile();
+    ['user-id','submission-name','notes'].forEach(id => document.getElementById(id).value = '');
+    progressFill.style.width = '0%';
+    submitBtn.disabled = true;
+  }
+
+  // ── Platform Links ──
+  const STORAGE_KEY = 'cg_platforms';
+
+  // Default popular platforms pre-loaded for convenience
+  const DEFAULTS = [
+    { id: 'd1', name: 'Google Classroom',  url: 'https://classroom.google.com',  favicon: 'https://www.google.com/favicon.ico' },
+    { id: 'd2', name: 'Microsoft Teams',   url: 'https://teams.microsoft.com',   favicon: 'https://teams.microsoft.com/favicon.ico' },
+    { id: 'd3', name: 'Moodle',            url: 'https://moodle.org',            favicon: 'https://moodle.org/favicon.ico' },
+    { id: 'd4', name: 'GitHub',            url: 'https://github.com',            favicon: 'https://github.com/favicon.ico' },
+  ];
+
+  function loadPlatforms() {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+    // First time: save defaults
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULTS));
+    return DEFAULTS;
+  }
+
+  function savePlatforms(list) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  }
+
+  function getFaviconUrl(url) {
+    try {
+      const host = new URL(url).hostname;
+      return `https://www.google.com/s2/favicons?domain=${host}&sz=32`;
+    } catch { return null; }
+  }
+
+  function renderPlatforms() {
+    const list = loadPlatforms();
+    const container = document.getElementById('links-list');
+    container.innerHTML = '';
+
+    if (list.length === 0) {
+      container.innerHTML = `
+        <div class="links-empty">
+          <span>🔗</span>
+          No platforms added yet.<br/>Paste any assignment website URL above to add it.
+        </div>`;
+      return;
+    }
+
+    list.forEach(p => {
+      const faviconUrl = p.favicon || getFaviconUrl(p.url);
+      const card = document.createElement('div');
+      card.className = 'platform-card';
+      card.innerHTML = `
+        <div class="platform-favicon">
+          <img src="${faviconUrl}" onerror="this.parentElement.innerHTML='🔗'" alt=""/>
+        </div>
+        <div class="platform-info">
+          <div class="platform-name">${escHtml(p.name)}</div>
+          <div class="platform-url">${escHtml(p.url)}</div>
+        </div>
+        <div class="platform-actions">
+          <a href="${escHtml(p.url)}" target="_blank" rel="noopener" class="open-btn">
+            Open
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+              <path d="M2 10L10 2M4 2h6v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+          <button class="del-btn" onclick="deletePlatform('${p.id}')">✕</button>
+        </div>`;
+      container.appendChild(card);
+    });
+  }
+
+  function addPlatform() {
+    const nameEl  = document.getElementById('plat-name');
+    const urlEl   = document.getElementById('plat-url');
+    const errorEl = document.getElementById('plat-error');
+    const name = nameEl.value.trim();
+    let   url  = urlEl.value.trim();
+
+    errorEl.style.display = 'none';
+
+    if (!name) { showError('Please enter a platform name.'); return; }
+    if (!url)  { showError('Please enter a URL.'); return; }
+
+    // Auto-add https:// if missing
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+
+    try { new URL(url); } catch { showError('Please enter a valid URL.'); return; }
+
+    const list = loadPlatforms();
+    const newP = {
+      id:      'p' + Date.now(),
+      name:    name,
+      url:     url,
+      favicon: getFaviconUrl(url)
+    };
+    list.unshift(newP);
+    savePlatforms(list);
+
+    nameEl.value = '';
+    urlEl.value  = '';
+    renderPlatforms();
+  }
+
+  function deletePlatform(id) {
+    const list = loadPlatforms().filter(p => p.id !== id);
+    savePlatforms(list);
+    renderPlatforms();
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('plat-error');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Allow pressing Enter in URL field to add
+  document.getElementById('plat-url').addEventListener('keydown', e => {
+    if (e.key === 'Enter') addPlatform();
+  });
+
+  // Initial render
+  renderPlatforms();
+</script>
+</body>
+</html>
