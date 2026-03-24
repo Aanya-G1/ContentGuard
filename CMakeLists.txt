@@ -5,5 +5,5 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(libpqxx CONFIG REQUIRED)
 
-add_executable(FingerPrint FingerPrint.cpp main.cpp)
+add_executable(FingerPrint FingerPrint.cpp StructuralSimilarity.cpp main.cpp)
 target_link_libraries(FingerPrint PRIVATE libpqxx::pqxx)

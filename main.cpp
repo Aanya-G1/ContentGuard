@@ -1,6 +1,7 @@
 //testing
 #include<iostream>
 #include "Fingerprint_module.h"
+#include "Structural_Similarity.h"
 using namespace std;
 int main() {
     DatabaseOperations db;
@@ -15,14 +16,18 @@ int main() {
     fg.generateHashes(fg.kgramGeneration(suspect));
     vector<uint64_t> suspectHashes = fg.getHashes();
 
-   cout << "\n--- Searching for matches for new submission ---\n";
+    cout << "\n--- Searching for matches for new submission ---\n";
     vector<int> matches = db.findMatch(suspectHashes);
-
+    StructuralSimilarity matcher(0.45);
     if (matches.empty()) {
         cout << "No matches found. This document is clean.\n";
     } else {
         cout << "ALERT: Potential plagiarism detected in Doc IDs: ";
-        for (int id : matches) cout << id << " ";
+        for (int id : matches) {
+            cout << id << " ";
+            double score=matcher.getSimilarityPercentage(original,suspect);
+            matcher.printMatch(id,score);
+        }
         cout << endl;
     }
 
