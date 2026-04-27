@@ -16,3 +16,10 @@ $(TARGET): $(SRCS)
 
 clean:
 	rm -f $(TARGET)
+
+# ── Install dependencies ──────────────────────────────────────
+# Ubuntu / Debian / WSL:
+#   sudo apt install libpqxx-dev libpq-dev
+#
+# macOS:
+#   brew install libpqxx
