@@ -4,6 +4,12 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+
+struct StructuralResult {
+    int docId;
+    double percentage;
+    string riskLevel; 
+};
 class StructuralSimilarity {
 private:
     double threshold;
@@ -18,4 +24,5 @@ public:
     bool isMatch(double score);
 };
 
+std::vector<StructuralResult > StructuralPlagiarism(const vector<string>& currentTokens,std::vector<int>suspects);
 #endif

@@ -24,9 +24,19 @@ double StructuralSimilarity::getSimilarityPercentage(const vector<string>& doc1,
 bool StructuralSimilarity::isMatch(double score){
     return(score>threshold);
 }
-void  StructuralSimilarity::printMatch(int docId, double score){
-    if (isMatch(score)) {
-            std::cout << "[ALERT] Document " << docId << " matches current logic by " 
-                      << (score * 100) << "%" << std::endl;
+
+vector<StructuralResult> StructuralPlagiarism(const vector<string>& currentTokens, vector<int> suspects) {
+    vector<StructuralResult> finalReport;
+    StructuralSimilarity matcher(0.45);
+    for(int susId : suspects) {
+        vector<string> dbTokens = getTokensBydocId(susId); 
+        
+        double score = matcher.getSimilarityPercentage(currentTokens, dbTokens);
+        
+        if (matcher.isMatch(score)) {
+            string level = (score > 0.7) ? "CRITICAL" : "MODERATE";
+            finalReport.push_back({susId, score * 100, level});
+        }
     }
+    return finalReport;
 }

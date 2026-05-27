@@ -47,6 +47,24 @@ uint64_t FingerPrintGeneration::rollinghashGeneration(uint64_t prevHash,uint64_t
     return nextHash;
 }
 
+vector<uint64_t> FingerPrintGeneration::winnowing(const vector<uint64_t>& hashes){
+    int w=4;
+    deque<int> dq;
+    vector<uint64_t> selectedHashes;
+    for(int i=0;i<hashes.size();i++){
+        if(!dq.empty() && dq.front()<= i - w) dq.pop_front();
+        while(!dq.empty() && hashes[dq.back()]>hashes[i]) dq.pop_back();
+        dq.push_back(i);
+       if (i >= w - 1) {
+            uint64_t currentMin = hashes[dq.front()];
+
+            if (selectedHashes.empty() || currentMin != selectedHashes.back()) {
+                selectedHashes.push_back(currentMin);
+            }
+        }
+    }
+    return selectedHashes;
+}
 vector<uint64_t> FingerPrintGeneration::getHashes() const {
     return hashes;
 }
@@ -112,4 +130,13 @@ vector<int> DatabaseOperations::findMatch(const vector<uint64_t>& hashes){
         cout << "Couldn't Perform filtering! " << e.what() << endl;
     }  
     return docIds;
+}
+vector<int> fingerprintProcessing(int docId,vector<std::string> tokens){
+    DatabaseOperations db;
+    db.Connection(); 
+    FingerPrintGeneration fg(3);
+    fg.generateHashes(fg.kgramGeneration(tokens));
+    vector<int> matches = db.findMatch(fg.getHashes());
+    db.storeFingerprints(docId, fg.getHashes());
+    return matches;
 }

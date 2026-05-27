@@ -24,8 +24,9 @@ int main() {
     } else {
         cout << "ALERT: Potential plagiarism detected in Doc IDs: ";
         for (int id : matches) {
+            vector<string> dbTokens = db.getTokensByDocId(id);
             cout << id << " ";
-            double score=matcher.getSimilarityPercentage(original,suspect);
+            double score=matcher.getSimilarityPercentage(suspect,dbTokens);
             matcher.printMatch(id,score);
         }
         cout << endl;

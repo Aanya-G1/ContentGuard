@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <memory>
 #include <pqxx/pqxx>
+#include <deque>
+#include <algorithm>
 
 class FingerPrintGeneration {
 private:
@@ -23,6 +25,7 @@ public:
     void generateHashes(std::vector<std::vector<std::string>> kgrams);
     uint64_t rollinghashGeneration(uint64_t prevHash, uint64_t OutVal, uint64_t InVal);
     std::vector<uint64_t> getHashes() const;
+    std::vector<uint64_t> winnowing(const std::vector<uint64_t>& hashes);
 };
 
 class DatabaseOperations {
@@ -36,4 +39,5 @@ public:
     std::vector<int> findMatch(const std::vector<uint64_t>& hashes);
 };
 
+std::vector<int> fingerprintProcessing(int docId,std::vector<std::string> tokens);
 #endif
