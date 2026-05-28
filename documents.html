@@ -326,17 +326,27 @@
   let activeFilter = 'ALL';
   let searchQuery  = '';
 
-  function loadDocs() {
-    allDocs = JSON.parse(localStorage.getItem('cg_documents') || '[]');
-    // Assign ranks by score descending (only PROCESSED docs)
+  // ── API base URL — must match the C++ backend port ──────────
+  const API_BASE = 'http://localhost:8080';
+
+  async function loadDocs() {
+    try {
+      const response = await fetch(API_BASE + '/api/documents');
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      allDocs = await response.json();
+    } catch (err) {
+      console.error('ContentGuard: could not load documents from backend.', err);
+      console.error('Make sure the C++ server is running: ./contentguard');
+      allDocs = [];
+    }
+    // Assign ranks by score descending (PROCESSED docs only) — done client-side
     const processed = [...allDocs]
       .filter(d => d.status === 'PROCESSED')
       .sort((a, b) => b.score - a.score);
     processed.forEach((d, i) => { d.rank = i + 1; });
-    // Merge ranks back
     allDocs.forEach(d => {
       const p = processed.find(x => x.id === d.id);
-      if (p) d.rank = p.rank; else d.rank = '—';
+      d.rank = p ? p.rank : '—';
     });
   }
 
@@ -449,9 +459,13 @@
     renderTable();
   }
 
-  function clearAll() {
+  async function clearAll() {
     if (confirm('Clear all document records? This cannot be undone.')) {
-      localStorage.removeItem('cg_documents');
+      try {
+        await fetch(API_BASE + '/api/documents', { method: 'DELETE' });
+      } catch (e) {
+        console.error('Clear failed:', e);
+      }
       allDocs = [];
       activeFilter = 'ALL';
       searchQuery  = '';
@@ -460,10 +474,12 @@
     }
   }
 
-  // Initial load
-  loadDocs();
-  renderStats();
-  renderTable();
+  // Initial load — async fetch from backend
+  (async () => {
+    await loadDocs();
+    renderStats();
+    renderTable();
+  })();
 </script>
 </body>
 </html>
