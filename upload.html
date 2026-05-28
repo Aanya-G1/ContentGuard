@@ -447,6 +447,9 @@
 </div>
 
 <script>
+  // ── API base URL — update this if your backend runs on a different port ──
+  const API_BASE = 'http://localhost:8080';
+
   // ── File handling ──
   const dropZone     = document.getElementById('drop-zone');
   const fileInput    = document.getElementById('file-input');
@@ -490,7 +493,9 @@
     preview.classList.remove('show');
     submitBtn.disabled = true;
     statusLog.classList.remove('show'); statusLog.innerHTML = '';
-    progressWrap.classList.remove('show'); progressFill.style.width = '0%';
+    progressWrap.classList.remove('show');
+    progressFill.style.width = '0%';
+    progressFill.style.background = '';  // reset error color
   }
 
   function formatSize(b) {
@@ -499,59 +504,105 @@
     return (b/1048576).toFixed(1) + ' MB';
   }
 
+  // ── Main submit handler — reads file then calls backend ──────
   function handleSubmit() {
     if (!selectedFile) return;
     submitBtn.disabled = true;
     progressWrap.classList.add('show');
     statusLog.classList.add('show');
     statusLog.innerHTML = '';
+    progressFill.style.background = '';  // reset any previous error color
 
-    const steps = [
-      { pct:15,  text:'Validating user...',        log:'✓ User ID validated',            cls:'log-ok'   },
-      { pct:30,  text:'Uploading file...',          log:'✓ File received by backend',     cls:'log-ok'   },
-      { pct:45,  text:'Preprocessing...',           log:'↻ Tokenizing & normalizing...', cls:'log-warn' },
-      { pct:60,  text:'Generating fingerprints...', log:'✓ Fingerprint hashes generated', cls:'log-ok'   },
-      { pct:75,  text:'Running detection...',       log:'✓ Match scan complete',          cls:'log-ok'   },
-      { pct:90,  text:'Ranking results...',         log:'✓ Results ranked',               cls:'log-ok'   },
-      { pct:100, text:'Generating report...',       log:'✓ Report saved',                 cls:'log-ok'   },
-    ];
-
-    let i = 0;
-    const now = new Date();
-    function runStep() {
-      if (i >= steps.length) { saveAndFinish(); return; }
-      const s = steps[i];
-      progressFill.style.width = s.pct + '%';
-      progressPct.textContent  = s.pct + '%';
-      progressText.textContent = s.text;
-      const timeStr = new Date(now.getTime() + i*600).toTimeString().substring(0,8);
-      statusLog.innerHTML += `<div class="log-line"><span class="log-time">${timeStr}</span><span class="${s.cls}">${s.log}</span></div>`;
-      statusLog.scrollTop = statusLog.scrollHeight;
-      i++; setTimeout(runStep, 600);
-    }
-    runStep();
+    // Read file as text, then send to backend
+    const reader = new FileReader();
+    reader.onload = (e) => runSubmission(e.target.result);
+    reader.onerror = () => {
+      showError('Could not read file. Please try again.');
+      submitBtn.disabled = false;
+    };
+    reader.readAsText(selectedFile);
   }
 
-  function saveAndFinish() {
-    const batchId = 'BATCH-' + Date.now().toString(36).toUpperCase();
-    const subId   = 'SUB-' + Date.now().toString().slice(-6);
+  // ── Animate progress steps while waiting for API response ───
+  async function runSubmission(fileContent) {
+    const steps = [
+      { pct:15,  text:'Validating user...',        log:'✓ User ID validated',             cls:'log-ok'   },
+      { pct:30,  text:'Uploading file...',          log:'✓ File received by backend',      cls:'log-ok'   },
+      { pct:45,  text:'Preprocessing...',           log:'↻ Tokenizing & normalizing...',  cls:'log-warn' },
+      { pct:60,  text:'Generating fingerprints...', log:'✓ Fingerprint hashes generated', cls:'log-ok'   },
+      { pct:75,  text:'Running detection...',       log:'✓ Match scan complete',           cls:'log-ok'   },
+      { pct:90,  text:'Ranking results...',         log:'✓ Results ranked',                cls:'log-ok'   },
+    ];
+
+    const now = new Date();
+
+    // Animate the first 6 steps (each 600 ms) while API call runs in background
+    const apiPromise = callSubmitAPI(fileContent);
+
+    for (let i = 0; i < steps.length; i++) {
+      const s = steps[i];
+      progressFill.style.width  = s.pct + '%';
+      progressPct.textContent   = s.pct + '%';
+      progressText.textContent  = s.text;
+      const timeStr = new Date(now.getTime() + i * 600).toTimeString().substring(0, 8);
+      addLogLine(timeStr, s.log, s.cls);
+      await sleep(600);
+    }
+
+    // Wait for API to finish (it runs in parallel with the animation)
+    try {
+      const result = await apiPromise;
+
+      // Final step
+      progressFill.style.width = '100%';
+      progressPct.textContent  = '100%';
+      progressText.textContent = 'Generating report...';
+      const timeStr = new Date(now.getTime() + steps.length * 600).toTimeString().substring(0, 8);
+      addLogLine(timeStr, '✓ Report saved', 'log-ok');
+
+      await sleep(400);
+      saveAndFinish(result);
+
+    } catch (err) {
+      // Show error in progress bar
+      progressFill.style.width      = '100%';
+      progressFill.style.background = 'var(--danger)';
+      progressPct.textContent       = '!';
+      progressText.textContent      = 'Error — check console';
+      const timeStr = new Date().toTimeString().substring(0, 8);
+      addLogLine(timeStr, '✗ ' + err.message, 'log-err');
+      submitBtn.disabled = false;
+    }
+  }
+
+  // ── Actual fetch call to the C++ backend ─────────────────────
+  async function callSubmitAPI(fileContent) {
     const userId  = document.getElementById('user-id').value.trim() || 'UNKNOWN';
     const subName = document.getElementById('submission-name').value.trim() || selectedFile.name;
-    const score   = parseFloat((Math.random() * 100).toFixed(1));
-    const label   = score >= 70 ? 'HIGH' : score >= 40 ? 'MEDIUM' : score >= 10 ? 'LOW' : 'NONE';
-    const submitted = new Date().toISOString().slice(0,16).replace('T',' ');
 
-    const newDoc = {
-      id: subId, batchId, name: selectedFile.name, subName, user: userId,
-      size: formatSize(selectedFile.size), submitted, score, label,
-      status: 'PROCESSED', rank: null, icon: getEmoji(selectedFile.name)
-    };
+    const response = await fetch(API_BASE + '/api/submit', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId:         userId,
+        fileName:       selectedFile.name,
+        content:        fileContent,
+        submissionName: subName
+      })
+    });
 
-    const existing = JSON.parse(localStorage.getItem('cg_documents') || '[]');
-    existing.unshift(newDoc);
-    localStorage.setItem('cg_documents', JSON.stringify(existing));
+    const data = await response.json();
 
-    document.getElementById('batch-id-display').textContent = 'Batch ID: ' + batchId;
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'Submission failed (HTTP ' + response.status + ')');
+    }
+
+    return data;   // { doc_id, subId, batchId, score, label, submitted, ... }
+  }
+
+  // ── Show success overlay with data returned from backend ─────
+  function saveAndFinish(result) {
+    document.getElementById('batch-id-display').textContent = 'Batch ID: ' + result.batchId;
     document.getElementById('success-overlay').classList.add('show');
   }
 
@@ -563,7 +614,21 @@
     submitBtn.disabled = true;
   }
 
-  // ── Platform Links ──
+  // ── Small helpers ─────────────────────────────────────────────
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function addLogLine(time, msg, cls) {
+    statusLog.innerHTML +=
+      `<div class="log-line"><span class="log-time">${time}</span><span class="${cls}">${msg}</span></div>`;
+    statusLog.scrollTop = statusLog.scrollHeight;
+  }
+
+  function showError(msg) {
+    progressText.textContent = msg;
+    progressFill.style.background = 'var(--danger)';
+  }
+
+  // ── Platform Links (unchanged — still uses localStorage for quick links) ──
   const STORAGE_KEY = 'cg_platforms';
 
   // Default popular platforms pre-loaded for convenience
