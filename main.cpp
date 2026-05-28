@@ -1,255 +1,349 @@
 /**
  * ╔══════════════════════════════════════════════════════════╗
- * ║              ContentGuard System                         ║
- * ║  Module 1: User & Submission Management                  ║
- * ║  Module 2: Input Preprocessing & Normalization           ║
+ * ║           ContentGuard — HTTP API Server                 ║
+ * ║  Connects C++ backend to the HTML/JS frontend            ║
  * ╚══════════════════════════════════════════════════════════╝
  *
- * Build:  make
- * Run:    ./contentguard
+ * Dependencies (header-only, place in project root):
+ *   httplib.h  — https://github.com/yhirose/cpp-httplib/releases  (single header)
+ *   json.hpp   — https://github.com/nlohmann/json/releases        (single header)
+ *
+ * Build:
+ *   g++ -std=c++17 main.cpp module1/submission_manager.cpp \
+ *       module2/preprocessor.cpp module2/preprocessor_db.cpp \
+ *       -I. -lpqxx -lpq -lssl -lcrypto -lpthread -o contentguard
+ *
+ * Run:
+ *   ./contentguard
+ *   Server starts at http://localhost:8080
  */
 
-#include "module1/submission_manager.hpp"
-#include "module2/preprocessor_db.hpp"
+#include "httplib.h"          // cpp-httplib  (place in project root)
+#include "json.hpp"           // nlohmann/json (place in project root)
+#include "submission_manager.hpp"
+#include "preprocessor_db.hpp"
 #include "db/db_config.hpp"
+
 #include <iostream>
+#include <sstream>
+#include <ctime>
+#include <iomanip>
+#include <string>
+
+using json = nlohmann::json;
 
 // ─────────────────────────────────────────────────────────────
-// Helper: print a section separator
+// Utility helpers
 // ─────────────────────────────────────────────────────────────
-static void separator(const std::string& title) {
-    std::cout << "\n======================================\n";
-    std::cout << "  " << title << "\n";
-    std::cout << "======================================\n";
+
+/** Returns "YYYY-MM-DD HH:MM" in local time */
+static std::string currentTimestamp() {
+    std::time_t t  = std::time(nullptr);
+    std::tm*    tm = std::localtime(&t);
+    std::ostringstream oss;
+    oss << std::put_time(tm, "%Y-%m-%d %H:%M");
+    return oss.str();
 }
 
-// ─────────────────────────────────────────────────────────────
-// safeAddUser
-// Tries to register a user. If email already exists, fetches
-// their existing userId instead of crashing.
-// ─────────────────────────────────────────────────────────────
-static int safeAddUser(SubmissionManager& mgr,
-                       const std::string& name,
-                       const std::string& email,
-                       Role role) {
-    try {
-        int id = mgr.addUser(name, email, role);
-        std::cout << "  Registered : " << name << " (userId=" << id << ")\n";
-        return id;
-    } catch (...) {
-        // User already exists — fetch by email
-        User u = mgr.getUserByEmail(email);
-        std::cout << "  Exists     : " << name << " (userId=" << u.userId << ")\n";
-        return u.userId;
-    }
+/** Returns a unique batch ID string */
+static std::string makeBatchId() {
+    std::ostringstream oss;
+    oss << "BATCH-" << std::hex << std::uppercase << std::time(nullptr);
+    return oss.str();
+}
+
+/** Returns "SUB-<docId>" */
+static std::string makeSubId(int docId) {
+    return "SUB-" + std::to_string(docId);
+}
+
+/** Returns an emoji for the file extension (matches frontend logic) */
+static std::string getEmoji(const std::string& fileName) {
+    auto dot = fileName.rfind('.');
+    if (dot == std::string::npos) return "📄";
+    std::string ext = fileName.substr(dot + 1);
+    if (ext == "java") return "☕";
+    if (ext == "py")   return "🐍";
+    if (ext == "cpp" || ext == "c") return "⚙️";
+    if (ext == "js")   return "🟨";
+    if (ext == "html") return "🌐";
+    if (ext == "pdf")  return "📕";
+    if (ext == "cs")   return "🔷";
+    return "📄";
+}
+
+/** Formats byte count as human-readable string */
+static std::string formatSize(int bytes) {
+    if (bytes < 1024)    return std::to_string(bytes) + " B";
+    if (bytes < 1048576) return std::to_string(bytes / 1024) + " KB";
+    return std::to_string(bytes / 1048576) + " MB";
+}
+
+/** Maps a plagiarism score (0–100) to a risk label */
+static std::string scoreToLabel(double score) {
+    if (score >= 70) return "HIGH";
+    if (score >= 40) return "MEDIUM";
+    if (score >= 10) return "LOW";
+    return "NONE";
 }
 
 // ─────────────────────────────────────────────────────────────
 // main
 // ─────────────────────────────────────────────────────────────
 int main() {
-    std::cout << "\n======================================\n";
-    std::cout << "       ContentGuard System\n";
-    std::cout << "======================================\n";
+    std::cout << "\n╔══════════════════════════════════════╗\n";
+    std::cout <<   "║   ContentGuard API Server             ║\n";
+    std::cout <<   "╚══════════════════════════════════════╝\n\n";
 
-    try {
-        // ── Connect both modules to Neon ──────────────────────
-        SubmissionManager mgr(DB::CONNECTION_STRING);
-        PreprocessorDB    ppdb(DB::CONNECTION_STRING);
-        std::cout << "\n✅ Connected to Neon PostgreSQL\n";
+    // Connect to Neon PostgreSQL
+    SubmissionManager mgr(DB::CONNECTION_STRING);
+    PreprocessorDB    ppdb(DB::CONNECTION_STRING);
+    std::cout << "✅ Connected to Neon PostgreSQL\n\n";
 
-        // ══════════════════════════════════════════════════════
-        // MODULE 1 — Register Users
-        // ══════════════════════════════════════════════════════
-        separator("MODULE 1 — Register Users");
+    httplib::Server svr;
 
-        int uid1 = safeAddUser(mgr, "Aanya Godiyal",   "aanya@example.com",   Role::STUDENT);
-        int uid2 = safeAddUser(mgr, "V Priya",          "priya@example.com",   Role::STUDENT);
-        int uid3 = safeAddUser(mgr, "Drishti Painuli",  "drishti@example.com", Role::STUDENT);
-        int uid4 = safeAddUser(mgr, "Yash Bahuguna",    "yash@example.com",    Role::STUDENT);
-                   safeAddUser(mgr, "Prof. Sharma",     "sharma@example.com",  Role::INSTRUCTOR);
+    // ── CORS headers (required so browser can call this API) ──
+    svr.set_default_headers({
+        {"Access-Control-Allow-Origin",  "*"},
+        {"Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS"},
+        {"Access-Control-Allow-Headers", "Content-Type, Accept"}
+    });
 
-        std::cout << "\nAll users in database:\n";
-        for (auto& u : mgr.listUsers(Role::STUDENT))
-            std::cout << "  [Student]     userId=" << u.userId
-                      << "  " << u.name << "\n";
-        for (auto& u : mgr.listUsers(Role::INSTRUCTOR))
-            std::cout << "  [Instructor]  userId=" << u.userId
-                      << "  " << u.name << "\n";
+    // Handle browser preflight OPTIONS requests
+    svr.Options(".*", [](const httplib::Request&, httplib::Response& res) {
+        res.status = 204;
+        res.set_content("", "text/plain");
+    });
 
-        // ══════════════════════════════════════════════════════
-        // MODULE 1 — Submit Files
-        // ══════════════════════════════════════════════════════
-        separator("MODULE 1 — Add Submissions");
+    // ══════════════════════════════════════════════════════════
+    // POST /api/submit
+    //
+    // Called by upload.html when user clicks "Start Scan".
+    //
+    // Request body (JSON):
+    //   {
+    //     "userId":         "STU-2024-001",   // from the Student/User ID field
+    //     "fileName":       "solution.cpp",   // uploaded file name
+    //     "content":        "...",            // file text content
+    //     "submissionName": "Assignment 3"    // from the Submission Name field
+    //   }
+    //
+    // Response (JSON):
+    //   {
+    //     "success":   true,
+    //     "doc_id":    5,
+    //     "subId":     "SUB-5",
+    //     "batchId":   "BATCH-ABC123",
+    //     "score":     0.0,
+    //     "label":     "NONE",
+    //     "submitted": "2026-05-28 12:00",
+    //     "fileName":  "solution.cpp",
+    //     "subName":   "Assignment 3",
+    //     "user":      "STU-2024-001",
+    //     "size":      "1.2 KB",
+    //     "icon":      "⚙️"
+    //   }
+    // ══════════════════════════════════════════════════════════
+    svr.Post("/api/submit", [&](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Content-Type", "application/json");
+        try {
+            auto body = json::parse(req.body);
 
-        // Aanya's C++ code
-        std::string cppCode1 =
-            "#include <iostream>\n"
-            "int main() {\n"
-            "    int studentScore = 0;  // initialize score\n"
-            "    studentScore = studentScore + 10;\n"
-            "    /* compute final grade */\n"
-            "    std::cout << studentScore;\n"
-            "    return 0;\n"
-            "}\n";
+            std::string userId   = body.value("userId",         "UNKNOWN");
+            std::string fileName = body.value("fileName",       "file.txt");
+            std::string content  = body.value("content",        "");
+            std::string subName  = body.value("submissionName", fileName);
 
-        // Priya's essay
-        std::string essay =
-            "Artificial intelligence is transforming modern education. "
-            "Students now have access to personalized learning tools that adapt "
-            "to their individual pace and style. The impact of AI on assessment "
-            "and plagiarism detection is particularly significant in universities.";
-
-        // Drishti's C++ code — same logic as Aanya but renamed variables
-        std::string cppCode2 =
-            "#include <iostream>\n"
-            "int main() {\n"
-            "    int gradePoint = 0;  // init grade\n"
-            "    gradePoint = gradePoint + 10;\n"
-            "    /* calculate total marks */\n"
-            "    std::cout << gradePoint;\n"
-            "    return 0;\n"
-            "}\n";
-
-        // Yash's Python code
-        std::string pythonCode =
-            "# Calculate student grade\n"
-            "def calculate_grade(marks):\n"
-            "    total = 0\n"
-            "    total = total + marks\n"
-            "    # print result\n"
-            "    print(total)\n"
-            "    return total\n";
-
-        // Validate before submitting
-        std::string err;
-        auto validate = [&](const std::string& fn, const std::string& content) {
-            if (!SubmissionManager::validateFile(fn, content, err)) {
-                std::cerr << "  Rejected " << fn << ": " << err << "\n";
-                return false;
+            // ── Validate file ──────────────────────────────────
+            std::string err;
+            if (!SubmissionManager::validateFile(fileName, content, err)) {
+                res.status = 400;
+                res.set_content(json{{"success", false}, {"error", err}}.dump(),
+                                "application/json");
+                return;
             }
-            return true;
-        };
 
-        int doc1 = -1, doc2 = -1, doc3 = -1, doc4 = -1;
-        if (validate("solution.cpp",   cppCode1))  doc1 = mgr.addSubmission(uid1, "solution.cpp",   cppCode1);
-        if (validate("essay.txt",      essay))      doc2 = mgr.addSubmission(uid2, "essay.txt",      essay);
-        if (validate("solution2.cpp",  cppCode2))  doc3 = mgr.addSubmission(uid3, "solution2.cpp",  cppCode2);
-        if (validate("grade_calc.py",  pythonCode)) doc4 = mgr.addSubmission(uid4, "grade_calc.py",  pythonCode);
+            // ── Get or create user ─────────────────────────────
+            // We store the frontend's userId string as the user's name
+            // and use userId@contentguard.local as a synthetic email.
+            int dbUserId = -1;
+            std::string userEmail = userId + "@contentguard.local";
+            try {
+                User u = mgr.getUserByEmail(userEmail);
+                dbUserId = u.userId;
+            } catch (...) {
+                // First time this userId appears — register them
+                dbUserId = mgr.addUser(userId, userEmail, Role::STUDENT);
+            }
 
-        std::cout << "Submissions saved:\n";
-        if (doc1 != -1) std::cout << "  doc_id=" << doc1 << "  solution.cpp   (Aanya)   -> CODE\n";
-        if (doc2 != -1) std::cout << "  doc_id=" << doc2 << "  essay.txt      (Priya)   -> TEXT\n";
-        if (doc3 != -1) std::cout << "  doc_id=" << doc3 << "  solution2.cpp  (Drishti) -> CODE\n";
-        if (doc4 != -1) std::cout << "  doc_id=" << doc4 << "  grade_calc.py  (Yash)    -> CODE\n";
+            // ── Save submission (Module 1) ─────────────────────
+            int docId = mgr.addSubmission(dbUserId, fileName, content);
+            mgr.updateStatus(docId, SubmissionStatus::PROCESSING);
 
-        // ── Queue all for Module 2 ────────────────────────────
-        if (doc1 != -1) mgr.updateStatus(doc1, SubmissionStatus::PROCESSING);
-        if (doc2 != -1) mgr.updateStatus(doc2, SubmissionStatus::PROCESSING);
-        if (doc3 != -1) mgr.updateStatus(doc3, SubmissionStatus::PROCESSING);
-        if (doc4 != -1) mgr.updateStatus(doc4, SubmissionStatus::PROCESSING);
-        std::cout << "\nAll submissions queued -> status=PROCESSING\n";
+            // ── Preprocess (Module 2) ──────────────────────────
+            try {
+                ppdb.processSubmission(docId);
+                mgr.updateStatus(docId, SubmissionStatus::DONE);
+            } catch (const std::exception& ppErr) {
+                std::cerr << "Preprocessor error for doc_id=" << docId
+                          << ": " << ppErr.what() << "\n";
+                mgr.updateStatus(docId, SubmissionStatus::ERROR);
+            }
 
-        // ══════════════════════════════════════════════════════
-        // MODULE 1 — Show submission by status
-        // ══════════════════════════════════════════════════════
-        separator("MODULE 1 — Submissions by Status");
-        auto processing = mgr.getSubmissionsByStatus(SubmissionStatus::PROCESSING);
-        std::cout << "Submissions with status=PROCESSING: "
-                  << processing.size() << "\n";
-        for (auto& s : processing)
-            std::cout << "  doc_id=" << s.doc_id
-                      << "  " << s.fileName
-                      << "  (" << (s.type==SubmissionType::CODE?"CODE":"TEXT") << ")\n";
+            // ── Score (Module 3 / 4 placeholder) ──────────────
+            // TODO: When Module 3 (fingerprinting) and Module 4 (comparison)
+            // are implemented, replace 0.0 below with the real similarity score:
+            //
+            //   FingerprintEngine fp(DB::CONNECTION_STRING);
+            //   double score = fp.getSimilarityScore(docId);
+            //
+            double score = 0.0;
+            std::string label = scoreToLabel(score);
 
-        // ══════════════════════════════════════════════════════
-        // MODULE 2 — Preprocess All Pending
-        // ══════════════════════════════════════════════════════
-        separator("MODULE 2 — Preprocessing Pipeline");
+            // ── Build and return response ──────────────────────
+            json response = {
+                {"success",   true},
+                {"doc_id",    docId},
+                {"subId",     makeSubId(docId)},
+                {"batchId",   makeBatchId()},
+                {"score",     score},
+                {"label",     label},
+                {"submitted", currentTimestamp()},
+                {"fileName",  fileName},
+                {"subName",   subName},
+                {"user",      userId},
+                {"size",      formatSize((int)content.size())},
+                {"icon",      getEmoji(fileName)}
+            };
+            res.set_content(response.dump(), "application/json");
 
-        int processed = ppdb.processAllPending();
-        std::cout << "\n✅ " << processed << " submission(s) preprocessed\n";
-
-        // ══════════════════════════════════════════════════════
-        // MODULE 2 — Show Results
-        // ══════════════════════════════════════════════════════
-        separator("MODULE 2 — Preprocessed Results");
-
-        auto results = ppdb.getAllResults();
-        for (auto& doc : results) {
-            std::cout << "\n  preprocessId=" << doc.preprocessId
-                      << "  doc_id=" << doc.doc_id << "\n";
-            std::cout << "  Tokens  : " << doc.tokenCount << "\n";
-            std::cout << "  Chars   : " << doc.charCount  << "\n";
-            std::cout << "  Type    : "
-                      << (doc.detectedType == FileType::CODE ? "CODE" : "TEXT") << "\n";
-            // Show first 80 chars of normalized content
-            std::string preview = doc.normalizedContent.substr(
-                0, std::min((int)doc.normalizedContent.size(), 80));
-            std::cout << "  Preview : " << preview << "...\n";
+        } catch (const std::exception& e) {
+            res.status = 500;
+            res.set_content(
+                json{{"success", false}, {"error", e.what()}}.dump(),
+                "application/json");
         }
+    });
 
-        // ══════════════════════════════════════════════════════
-        // MODULE 2 — Demo: getTokensByDocId for Module 3
-        // ══════════════════════════════════════════════════════
-        separator("MODULE 2 — getTokensByDocId Demo (for Module 3)");
+    // ══════════════════════════════════════════════════════════
+    // GET /api/documents
+    //
+    // Called by documents.html to load all submissions.
+    //
+    // Response (JSON array):
+    //   [
+    //     {
+    //       "id":        "SUB-5",
+    //       "doc_id":    5,
+    //       "batchId":   "BATCH-5",
+    //       "name":      "solution.cpp",
+    //       "subName":   "solution.cpp",
+    //       "user":      "STU-2024-001",
+    //       "size":      "1.2 KB",
+    //       "submitted": "2026-05-28 12:00",
+    //       "score":     0.0,
+    //       "label":     "NONE",
+    //       "status":    "PROCESSED",
+    //       "rank":      null,
+    //       "icon":      "⚙️"
+    //     },
+    //     ...
+    //   ]
+    // ══════════════════════════════════════════════════════════
+    svr.Get("/api/documents", [&](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Content-Type", "application/json");
+        try {
+            auto submissions = mgr.getAllSubmissions();
+            json arr = json::array();
 
-        if (doc1 != -1 && ppdb.isProcessed(doc1)) {
-            auto tokens = ppdb.getTokensByDocId(doc1);
-            std::cout << "Tokens for doc_id=" << doc1
-                      << " (Aanya's solution.cpp):\n";
-            std::cout << "  Count: " << tokens.size() << "\n";
-            std::cout << "  Tokens: ";
-            for (size_t i = 0; i < std::min(tokens.size(), (size_t)15); ++i)
-                std::cout << "[" << tokens[i] << "] ";
-            std::cout << "...\n";
+            for (auto& s : submissions) {
+                // Recover the original userId string (stored as user's name)
+                std::string userStr = "UNKNOWN";
+                try {
+                    User u = mgr.getUser(s.userId);
+                    userStr = u.name;   // name = original frontend userId string
+                } catch (...) {}
+
+                // Map submission status → frontend status string
+                std::string docStatus =
+                    (s.status == SubmissionStatus::DONE) ? "PROCESSED" : "PENDING";
+
+                // Score placeholder — replace with Module 3/4 call
+                double score = 0.0;
+                // TODO: score = fingerprintEngine.getScore(s.doc_id);
+
+                std::string label = scoreToLabel(score);
+
+                arr.push_back({
+                    {"id",        makeSubId(s.doc_id)},
+                    {"doc_id",    s.doc_id},
+                    {"batchId",   "BATCH-" + std::to_string(s.doc_id)},
+                    {"name",      s.fileName},
+                    {"subName",   s.fileName},
+                    {"user",      userStr},
+                    {"size",      formatSize(s.fileSizeBytes)},
+                    {"submitted", s.submittedAt},
+                    {"score",     score},
+                    {"label",     label},
+                    {"status",    docStatus},
+                    {"rank",      nullptr},   // ranked client-side
+                    {"icon",      getEmoji(s.fileName)}
+                });
+            }
+
+            res.set_content(arr.dump(), "application/json");
+
+        } catch (const std::exception& e) {
+            res.status = 500;
+            res.set_content(
+                json{{"error", e.what()}}.dump(),
+                "application/json");
         }
+    });
 
-        if (doc3 != -1 && ppdb.isProcessed(doc3)) {
-            auto tokens = ppdb.getTokensByDocId(doc3);
-            std::cout << "\nTokens for doc_id=" << doc3
-                      << " (Drishti's solution2.cpp):\n";
-            std::cout << "  Count: " << tokens.size() << "\n";
-            std::cout << "  Tokens: ";
-            for (size_t i = 0; i < std::min(tokens.size(), (size_t)15); ++i)
-                std::cout << "[" << tokens[i] << "] ";
-            std::cout << "...\n";
+    // ══════════════════════════════════════════════════════════
+    // DELETE /api/documents
+    //
+    // Called by documents.html "Clear All" button.
+    // Removes all submissions and their preprocessed results.
+    // ══════════════════════════════════════════════════════════
+    svr.Delete("/api/documents", [&](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Content-Type", "application/json");
+        try {
+            auto submissions = mgr.getAllSubmissions();
+            for (auto& s : submissions) {
+                try { ppdb.deleteResult(s.doc_id); } catch (...) {}
+                mgr.deleteSubmission(s.doc_id);
+            }
+            res.set_content(json{{"success", true}}.dump(), "application/json");
+
+        } catch (const std::exception& e) {
+            res.status = 500;
+            res.set_content(
+                json{{"success", false}, {"error", e.what()}}.dump(),
+                "application/json");
         }
+    });
 
-        // ══════════════════════════════════════════════════════
-        // Plagiarism Proof — show identical normalization
-        // ══════════════════════════════════════════════════════
-        separator("Plagiarism Detection Proof");
+    // ══════════════════════════════════════════════════════════
+    // GET /api/health   (optional — useful for frontend to check if server is up)
+    // ══════════════════════════════════════════════════════════
+    svr.Get("/api/health", [](const httplib::Request&, httplib::Response& res) {
+        res.set_content(
+            json{{"status", "ok"}, {"service", "ContentGuard"}}.dump(),
+            "application/json");
+    });
 
-        if (doc1 != -1 && doc3 != -1 &&
-            ppdb.isProcessed(doc1) && ppdb.isProcessed(doc3)) {
-            auto d1 = ppdb.getResultByDocId(doc1);
-            auto d3 = ppdb.getResultByDocId(doc3);
-            std::cout << "Aanya's   normalizedContent: "
-                      << d1.normalizedContent.substr(0,60) << "\n";
-            std::cout << "Drishti's normalizedContent: "
-                      << d3.normalizedContent.substr(0,60) << "\n";
-            if (d1.normalizedContent == d3.normalizedContent)
-                std::cout << "\n✅ IDENTICAL — plagiarism will be detected by Module 4!\n";
-            else
-                std::cout << "\n⚠️  Different normalized content.\n";
-        }
+    // ── Start listening ────────────────────────────────────────
+    std::cout << "ContentGuard API running on http://localhost:8080\n\n";
+    std::cout << "Endpoints:\n";
+    std::cout << "  POST   /api/submit        — upload & process a document\n";
+    std::cout << "  GET    /api/documents     — list all documents\n";
+    std::cout << "  DELETE /api/documents     — clear all documents\n";
+    std::cout << "  GET    /api/health        — health check\n\n";
+    std::cout << "Open the frontend: file:///path/to/index.html\n";
+    std::cout << "Press Ctrl+C to stop.\n\n";
 
-        // ══════════════════════════════════════════════════════
-        // Handoff Summary for Module 3
-        // ══════════════════════════════════════════════════════
-        separator("Handoff -> Module 3 (Fingerprint Generation)");
-        std::cout << "  PreprocessedDocs table has " << results.size()
-                  << " document(s) ready.\n";
-        std::cout << "  Module 3 calls: ppdb.getTokensByDocId(doc_id)\n";
-        std::cout << "  to get tokens for Rolling Hash fingerprinting.\n";
-
-        std::cout << "\n✅ Modules 1 & 2 complete.\n\n";
-
-    } catch (const std::exception& e) {
-        std::cerr << "\n❌ Error: " << e.what() << "\n";
-        std::cerr << "   -> Check db/db_config.hpp with your Neon connection string.\n";
-        return 1;
-    }
+    svr.listen("0.0.0.0", 8080);
     return 0;
 }
