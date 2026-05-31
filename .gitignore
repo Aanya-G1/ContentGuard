@@ -1,0 +1,11 @@
+# Compiled Executables and Object Files
+*.exe
+*.o
+*.out
+
+# Security / Credentials
+database/db_config.hpp
+
+# OS generated files
+.DS_Store
+Thumbs.db
